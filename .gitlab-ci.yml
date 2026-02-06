@@ -1,0 +1,84 @@
+# GitLab CI/CD Pipeline for Crypto Market Data Sync
+# Runs twice daily to fetch data from CoinGecko and upload to Supabase
+
+stages:
+  - sync
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# Cache pip packages between runs
+cache:
+  paths:
+    - .cache/pip/
+
+# Test API connectivity job
+test_api:
+  stage: sync
+  image: alpine:latest
+  script:
+    - apk add --no-cache curl
+    - 'curl -v "https://api.coingecko.com/api/v3/ping" -H "x-cg-demo-api-key: $COINGECKO_API_KEY"'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+  variables:
+    COINGECKO_API_KEY: $COINGECKO_API_KEY
+
+# Scheduled job to sync crypto data
+sync_crypto_data:
+  stage: sync
+  image: python:3.11-slim
+  
+  # Run on schedule or manual trigger
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"  # Manual trigger from UI
+    - if: $CI_PIPELINE_SOURCE == "api"  # CLI/API trigger
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+  
+  variables:
+    COINGECKO_API_KEY: $COINGECKO_API_KEY
+    DATABASE_URL: $DATABASE_URL
+  
+  before_script:
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+  
+  script:
+    - echo "Starting crypto data sync at $(date -u)"
+    - echo "DEBUG - COINGECKO_API_KEY is set:" && test -n "$COINGECKO_API_KEY" && echo "YES" || echo "NO"
+    - echo "DEBUG - DATABASE_URL is set:" && test -n "$DATABASE_URL" && echo "YES" || echo "NO"
+    - python fetch_crypto_data.py
+    - echo "Sync completed at $(date -u)"
+  
+  # Retry on failure (e.g., rate limits, network issues)
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - script_failure
+
+# Optional: Manual dry-run job for testing
+dry_run:
+  stage: sync
+  image: python:3.11-slim
+  
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+  
+  variables:
+    COINGECKO_API_KEY: $COINGECKO_API_KEY
+    DATABASE_URL: $DATABASE_URL
+  
+  before_script:
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+  
+  script:
+    - echo "Running in DRY RUN mode..."
+    - echo "DEBUG - COINGECKO_API_KEY is set:" && test -n "$COINGECKO_API_KEY" && echo "YES" || echo "NO"
+    - echo "DEBUG - DATABASE_URL is set:" && test -n "$DATABASE_URL" && echo "YES" || echo "NO"
+    - python fetch_crypto_data.py --dry-run
