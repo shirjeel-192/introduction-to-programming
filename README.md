@@ -23,7 +23,8 @@ The project consists of two main components:
    * Fetches top 1000 cryptocurrencies from CoinGecko API.
    * Calculates the `Vol/MCap Ratio`.
    * Uploads data to a Supabase (PostgreSQL) database.
-   * Runs automatically via GitLab CI/CD schedules.
+   * Automatically cleans up records older than 90 days to maintain a rolling window and stay within Supabase storage limits.
+   * Runs automatically twice daily via GitHub Actions.
 2. **Frontend Dashboard (`app.py`)**:
 
    * Built with **Streamlit** for rapid, interactive UI.
@@ -107,8 +108,9 @@ Select coins from the table to compare them in the interactive chart.
 ## 🛣 Roadmap
 
 - [X] Initial MVP with Vol/MCap ranking
-- [X] Automated Data Pipeline (GitLab CI)
+- [X] Automated Data Pipeline (GitHub Actions & GitLab CI)
 - [X] Comparison Charts & Historical Snapshots
+- [X] 90-Day Rolling Data Retention / Storage Pruning
 - [ ] **Advanced Metrics**: RSI and Moving Averages
 - [ ] **Alerts**: Email notifications for sudden ratio spikes
 - [ ] **User Accounts**: Save favorite coins and custom watchlists

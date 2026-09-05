@@ -32,10 +32,16 @@ logger = logging.getLogger(__name__)
 # Configuration - Hardcoded fallbacks for CI/CD (variable substitution not working)
 _api_key = os.environ.get('COINGECKO_API_KEY', '')
 _db_url = os.environ.get('DATABASE_URL', '')
+_retention_days_env = os.environ.get('RETENTION_DAYS', '90')
 
-# GitLab CI isn't substituting variables, so check for literal $VAR strings
+# GitLab CI / GitHub Actions fallbacks
 COINGECKO_API_KEY = _api_key if _api_key and not _api_key.startswith('$') else 'CG-kzG3ytHELPMPU3GFcJD1UDx1'
 DATABASE_URL = _db_url if _db_url and not _db_url.startswith('$') else 'postgresql://postgres:IntroProgramming%401@db.vnmsppcmnprubtyxyrsm.supabase.co:5432/postgres'
+
+try:
+    RETENTION_DAYS = int(_retention_days_env) if _retention_days_env and not _retention_days_env.startswith('$') else 90
+except ValueError:
+    RETENTION_DAYS = 90
 
 # Debug: Log API key info (masked for security)
 if COINGECKO_API_KEY:
@@ -181,6 +187,7 @@ def upload_to_database(records: list, dry_run: bool = False) -> bool:
         logger.info(f"DRY RUN: Would insert {len(records)} records")
         return True
     
+    conn = None
     try:
         logger.info(f"Connecting to database...")
         conn = psycopg2.connect(DATABASE_URL)
@@ -200,7 +207,6 @@ def upload_to_database(records: list, dry_run: bool = False) -> bool:
         
         conn.commit()
         cursor.close()
-        conn.close()
         
         logger.info(f"Successfully inserted {len(records)} records")
         return True
@@ -208,14 +214,82 @@ def upload_to_database(records: list, dry_run: bool = False) -> bool:
     except psycopg2.Error as e:
         logger.error(f"Database error: {e}")
         return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def purge_old_records(retention_days: int = RETENTION_DAYS, dry_run: bool = False) -> bool:
+    """
+    Delete records older than retention_days to maintain a rolling window
+    and prevent database storage limits from being exceeded.
+    
+    Args:
+        retention_days: Number of days of historical snapshots to keep
+        dry_run: If True, simulate deletion without executing
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    if not DATABASE_URL:
+        logger.error("DATABASE_URL environment variable not set")
+        return False
+    
+    if retention_days <= 0:
+        logger.info("Retention pruning disabled (retention_days <= 0)")
+        return True
+    
+    if dry_run:
+        logger.info(f"DRY RUN: Would purge records older than {retention_days} days")
+        return True
+    
+    conn = None
+    try:
+        logger.info(f"Purging records older than {retention_days} days...")
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        purge_query = """
+            DELETE FROM crypto_market_history_all
+            WHERE as_of_ts < (NOW() - %s * INTERVAL '1 day')
+        """
+        cursor.execute(purge_query, (retention_days,))
+        deleted_count = cursor.rowcount
+        conn.commit()
+        cursor.close()
+        
+        logger.info(f"Successfully purged {deleted_count} records older than {retention_days} days")
+        return True
+        
+    except psycopg2.Error as e:
+        logger.error(f"Error purging old records: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 
 def main():
     """Main execution function."""
     dry_run = '--dry-run' in sys.argv
+    purge_only = '--purge-only' in sys.argv
+    
+    # Custom retention days if specified
+    retention_days = RETENTION_DAYS
+    for i, arg in enumerate(sys.argv):
+        if arg == '--retention-days' and i + 1 < len(sys.argv):
+            try:
+                retention_days = int(sys.argv[i + 1])
+            except ValueError:
+                pass
     
     if dry_run:
         logger.info("Running in DRY RUN mode - no database changes will be made")
+    
+    if purge_only:
+        logger.info(f"Running purge only (retention: {retention_days} days)")
+        success = purge_old_records(retention_days=retention_days, dry_run=dry_run)
+        sys.exit(0 if success else 1)
     
     # Timestamp for this run
     run_timestamp = datetime.now(timezone.utc)
@@ -248,6 +322,8 @@ def main():
     success = upload_to_database(records, dry_run=dry_run)
     
     if success:
+        logger.info("Data upload succeeded. Running retention cleanup...")
+        purge_old_records(retention_days=retention_days, dry_run=dry_run)
         logger.info("Data sync completed successfully!")
         sys.exit(0)
     else:

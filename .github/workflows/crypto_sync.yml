@@ -1,0 +1,51 @@
+name: Crypto Market Data Sync
+
+on:
+  schedule:
+    # Runs twice daily at 00:00 and 12:00 UTC
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (no database writes)'
+        required: false
+        type: boolean
+        default: false
+      retention_days:
+        description: 'Number of days of data to retain (default: 90)'
+        required: false
+        type: string
+        default: '90'
+
+jobs:
+  sync_crypto_data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run crypto data sync
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          RETENTION_DAYS: ${{ github.event.inputs.retention_days || '90' }}
+        run: |
+          echo "Starting crypto data sync at $(date -u)"
+          CMD="python fetch_crypto_data.py"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+          $CMD
+          echo "Sync completed at $(date -u)"

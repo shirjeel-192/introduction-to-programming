@@ -178,13 +178,14 @@ def get_historical_data_multi(symbols: list, days: int = 7) -> pd.DataFrame:
         return pd.DataFrame()
     
     all_data = []
+    snapshot_limit = max(100, days * 3)
     
     for symbol in symbols:
         response = supabase.table("crypto_market_history_all") \
             .select("as_of_ts, symbol, price_usd, volume_24h_usd, market_cap_usd, price_change_24h_pct") \
             .eq("symbol", symbol.upper()) \
             .order("as_of_ts", desc=False) \
-            .limit(100) \
+            .limit(snapshot_limit) \
             .execute()
         
         if response.data:

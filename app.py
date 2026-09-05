@@ -383,7 +383,7 @@ def main():
         # Time range selector
         time_range = st.radio(
             "Time Range",
-            ["7 Days", "14 Days", "30 Days"],
+            ["7 Days", "14 Days", "30 Days", "90 Days"],
             horizontal=True,
             key="time_range"
         )
