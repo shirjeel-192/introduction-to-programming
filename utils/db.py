@@ -15,6 +15,16 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
+if not SUPABASE_URL or not SUPABASE_KEY:
+    try:
+        import streamlit as st
+        if not SUPABASE_URL and hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
+            SUPABASE_URL = st.secrets["SUPABASE_URL"]
+        if not SUPABASE_KEY and hasattr(st, "secrets") and "SUPABASE_KEY" in st.secrets:
+            SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    except Exception:
+        pass
+
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
